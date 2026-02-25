@@ -55,6 +55,11 @@ export function Liveline({
   lineData,
   lineValue,
   onModeChange,
+  bars,
+  barMode,
+  barWidth,
+  barColor,
+  barLabels,
   className,
   style,
 }: LivelineProps) {
@@ -167,6 +172,11 @@ export function Liveline({
     lineMode,
     lineData,
     lineValue,
+    bars,
+    barMode,
+    barColor,
+    barWidthSecs: barWidth,
+    barLabels,
   })
 
   const cursorStyle = scrub ? cursor : 'default'

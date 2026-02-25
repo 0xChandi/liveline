@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Liveline } from 'liveline'
-import type { LivelinePoint, CandlePoint } from 'liveline'
+import type { LivelinePoint, CandlePoint, BarPoint } from 'liveline'
 
 // --- Data generators ---
 
@@ -38,6 +38,42 @@ function aggregateCandles(ticks: LivelinePoint[], width: number): { candles: Can
     }
   }
   return { candles, live: { time: slot, open: o, high: h, low: l, close: c } }
+}
+
+/** Generate initial volume bars from seed data */
+function generateBars(data: LivelinePoint[], bucketSecs: number): BarPoint[] {
+  if (data.length === 0) return []
+  const bars: BarPoint[] = []
+  const startTime = Math.floor(data[0].time / bucketSecs) * bucketSecs
+  let bucketStart = startTime
+  let bucketVolume = 0
+  let prevValue = data[0].value
+  for (const pt of data) {
+    while (pt.time >= bucketStart + bucketSecs) {
+      if (bucketVolume > 0) bars.push({ time: bucketStart, value: bucketVolume })
+      bucketStart += bucketSecs
+      bucketVolume = 0
+    }
+    const change = Math.abs(pt.value - prevValue)
+    bucketVolume += 10 + change * 20 + Math.random() * 5
+    prevValue = pt.value
+  }
+  if (bucketVolume > 0) bars.push({ time: bucketStart, value: bucketVolume })
+  return bars
+}
+
+/** Incrementally update bars with a new data point — only touches the last bucket */
+function addTickToBars(bars: BarPoint[], pt: LivelinePoint, prevValue: number, bucketSecs: number): BarPoint[] {
+  const bucketStart = Math.floor(pt.time / bucketSecs) * bucketSecs
+  const change = Math.abs(pt.value - prevValue)
+  const volume = 10 + change * 20 + Math.random() * 5
+  if (bars.length === 0 || bars[bars.length - 1].time < bucketStart) {
+    return [...bars, { time: bucketStart, value: volume }]
+  }
+  const updated = bars.slice()
+  const last = updated[updated.length - 1]
+  updated[updated.length - 1] = { time: last.time, value: last.value + volume }
+  return updated
 }
 
 // --- Constants ---
@@ -92,6 +128,9 @@ function Demo() {
 
   const [volatility, setVolatility] = useState<Volatility>('normal')
   const [tickRate, setTickRate] = useState(300)
+  const [bars, setBars] = useState<BarPoint[]>([])
+  const [barLabels, setBarLabels] = useState(false)
+  const barBucketSecs = 2
 
   const [chartType, setChartType] = useState<'line' | 'candle'>('candle')
   const [candleSecs, setCandleSecs] = useState(2)
@@ -162,10 +201,12 @@ function Demo() {
     setCandles(agg.candles)
     setLiveCandle(agg.live)
     liveCandleRef.current = agg.live ? { ...agg.live } : null
+    setBars(generateBars(seed, barBucketSecs))
 
     intervalRef.current = window.setInterval(() => {
       const now = Date.now() / 1000
-      const pt = generatePoint(lastValueRef.current, now, volatilityRef.current, startValueRef.current)
+      const prevVal = lastValueRef.current
+      const pt = generatePoint(prevVal, now, volatilityRef.current, startValueRef.current)
       lastValueRef.current = pt.value
       setValue(pt.value)
       setData(prev => {
@@ -175,6 +216,7 @@ function Demo() {
         return trimmed
       })
       tickAndAggregate(pt)
+      setBars(prev => addTickToBars(prev, pt, prevVal, barBucketSecs))
     }, tickRate)
   }, [tickRate])
 
@@ -182,7 +224,7 @@ function Demo() {
     if (scenario === 'loading') {
       setLoading(true)
       setData([]); dataRef.current = []
-      setCandles([]); setLiveCandle(null); liveCandleRef.current = null
+      setCandles([]); setLiveCandle(null); liveCandleRef.current = null; setBars([])
       clearInterval(intervalRef.current)
       const timer = setTimeout(() => setScenario('live'), 3000)
       return () => clearTimeout(timer)
@@ -191,7 +233,7 @@ function Demo() {
     if (scenario === 'loading-hold') {
       setLoading(true)
       setData([]); dataRef.current = []
-      setCandles([]); setLiveCandle(null); liveCandleRef.current = null
+      setCandles([]); setLiveCandle(null); liveCandleRef.current = null; setBars([])
       clearInterval(intervalRef.current)
       return
     }
@@ -199,7 +241,7 @@ function Demo() {
     if (scenario === 'empty') {
       setLoading(false)
       setData([]); dataRef.current = []
-      setCandles([]); setLiveCandle(null); liveCandleRef.current = null
+      setCandles([]); setLiveCandle(null); liveCandleRef.current = null; setBars([])
       clearInterval(intervalRef.current)
       return
     }
@@ -213,7 +255,8 @@ function Demo() {
     clearInterval(intervalRef.current)
     intervalRef.current = window.setInterval(() => {
       const now = Date.now() / 1000
-      const pt = generatePoint(lastValueRef.current, now, volatilityRef.current, startValueRef.current)
+      const prevVal = lastValueRef.current
+      const pt = generatePoint(prevVal, now, volatilityRef.current, startValueRef.current)
       lastValueRef.current = pt.value
       setValue(pt.value)
       setData(prev => {
@@ -223,6 +266,7 @@ function Demo() {
         return trimmed
       })
       tickAndAggregate(pt)
+      setBars(prev => addTickToBars(prev, pt, prevVal, barBucketSecs))
     }, tickRate)
     return () => clearInterval(intervalRef.current)
   }, [tickRate, scenario])
@@ -260,7 +304,7 @@ function Demo() {
     }
     // Force re-seed by cycling to loading
     setData([]); dataRef.current = []
-    setCandles([]); setLiveCandle(null); liveCandleRef.current = null
+    setCandles([]); setLiveCandle(null); liveCandleRef.current = null; setBars([])
     lastValueRef.current = preset === 'crypto' ? 65000 : 100
     clearInterval(intervalRef.current)
     setLoading(true)
@@ -348,6 +392,7 @@ function Demo() {
         <Sep />
         <Toggle on={grid} onToggle={setGrid}>Grid</Toggle>
         <Toggle on={scrub} onToggle={setScrub}>Scrub</Toggle>
+        <Toggle on={barLabels} onToggle={setBarLabels}>Bar labels</Toggle>
       </Section>
 
       {/* Main chart */}
@@ -426,6 +471,62 @@ function Demo() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Bar chart — default mode */}
+      <p style={{ fontSize: 12, color: 'var(--fg-30)', marginTop: 24, marginBottom: 8 }}>Volume bars (default)</p>
+      <div style={{
+        height: 320,
+        background: 'var(--fg-02)',
+        borderRadius: 12,
+        border: '1px solid var(--fg-06)',
+        padding: 8,
+        overflow: 'hidden',
+      }}>
+        <Liveline
+          data={data}
+          value={value}
+          loading={loading}
+          paused={paused}
+          theme={theme}
+          color={preset === 'crypto' ? '#f7931a' : undefined}
+          window={windowSecs}
+          formatValue={preset === 'crypto' ? formatCrypto : undefined}
+          grid={grid}
+          scrub={scrub}
+          bars={bars}
+          barMode="default"
+          barWidth={barBucketSecs}
+          barLabels={barLabels}
+        />
+      </div>
+
+      {/* Bar chart — overlay mode */}
+      <p style={{ fontSize: 12, color: 'var(--fg-30)', marginTop: 24, marginBottom: 8 }}>Volume bars (overlay)</p>
+      <div style={{
+        height: 320,
+        background: 'var(--fg-02)',
+        borderRadius: 12,
+        border: '1px solid var(--fg-06)',
+        padding: 8,
+        overflow: 'hidden',
+      }}>
+        <Liveline
+          data={data}
+          value={value}
+          loading={loading}
+          paused={paused}
+          theme={theme}
+          color={preset === 'crypto' ? '#f7931a' : undefined}
+          window={windowSecs}
+          formatValue={preset === 'crypto' ? formatCrypto : undefined}
+          grid={grid}
+          scrub={scrub}
+          bars={bars}
+          barMode="overlay"
+          barWidth={barBucketSecs}
+          barLabels={barLabels}
+        />
       </div>
 
       {/* Status bar */}

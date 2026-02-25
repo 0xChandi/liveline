@@ -15,4 +15,6 @@ export type {
   DegenOptions,
   WindowStyle,
   BadgeVariant,
+  BarPoint,
+  BarMode,
 } from './types'
