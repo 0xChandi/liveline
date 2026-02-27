@@ -1120,16 +1120,13 @@ export function useLivelineEngine(
       const windowTransProgress = windowResult.windowTransProgress
       const isWindowTransitioning = transition.startMs > 0
 
-      let rawRightEdge = now + windowSecs * candleBuffer
-      // Clamp right edge for historical data (latest data far behind `now`)
-      if (effectiveCandles.length > 0 && now - effectiveCandles[effectiveCandles.length - 1].time > windowSecs * 0.5) {
-        rawRightEdge = effectiveCandles[effectiveCandles.length - 1].time + windowSecs * candleBuffer
-      }
-      const rightEdge = rawRightEdge
-      // Clamp left edge so the x-axis never extends before the earliest candle
-      const rawLeftEdge = rightEdge - windowSecs
-      const firstCandleTime = effectiveCandles.length > 0 ? effectiveCandles[0].time : rawLeftEdge
-      const leftEdge = Math.max(rawLeftEdge, firstCandleTime)
+      // Clamp window to actual data span so oversized timeframes don't show empty space
+      const firstCandleTime = effectiveCandles.length > 0 ? effectiveCandles[0].time : now
+      const candleDataSpan = now - firstCandleTime
+      const clampedWindow = candleDataSpan > 0 ? Math.min(windowSecs, candleDataSpan) : windowSecs
+
+      const rightEdge = now + clampedWindow * candleBuffer
+      const leftEdge = rightEdge - clampedWindow
 
       // --- Live candle OHLC lerp ---
       let smoothLive: CandlePoint | undefined
@@ -1728,27 +1725,20 @@ export function useLivelineEngine(
     const windowTransProgress = windowResult.windowTransProgress
     const isWindowTransitioning = transition.startMs > 0
 
-    let rawRightEdge = now + windowSecs * buffer
-    // Clamp right edge so it doesn't extend far past the latest data point
-    // (prevents huge empty future gap for historical / non-live data)
-    let latestSeriesTime = -Infinity
-    let earliestSeriesTime = Infinity
+    // Clamp window to actual data span so oversized timeframes (e.g. "All")
+    // don't show empty space beyond available data
+    let earliestSeriesTime = now
     for (const s of effectiveMultiSeries) {
       const sData = pausedMultiDataRef.current?.get(s.id)?.data ?? s.data
-      if (sData.length > 0) {
-        if (sData[0].time < earliestSeriesTime) earliestSeriesTime = sData[0].time
-        if (sData[sData.length - 1].time > latestSeriesTime) latestSeriesTime = sData[sData.length - 1].time
+      if (sData.length > 0 && sData[0].time < earliestSeriesTime) {
+        earliestSeriesTime = sData[0].time
       }
     }
-    if (isFinite(latestSeriesTime) && now - latestSeriesTime > windowSecs * 0.5) {
-      rawRightEdge = latestSeriesTime + windowSecs * buffer
-    }
-    const rightEdge = rawRightEdge
-    // Clamp left edge so the x-axis never extends before the earliest series data
-    const rawLeftEdge = rightEdge - windowSecs
-    const leftEdge = isFinite(earliestSeriesTime)
-      ? Math.max(rawLeftEdge, earliestSeriesTime)
-      : rawLeftEdge
+    const multiDataSpan = now - earliestSeriesTime
+    const clampedWindow = multiDataSpan > 0 ? Math.min(windowSecs, multiDataSpan) : windowSecs
+
+    const rightEdge = now + clampedWindow * buffer
+    const leftEdge = rightEdge - clampedWindow
     const filterRight = rightEdge - (rightEdge - now) * pauseProgress
 
     // Build per-series visible arrays and compute global range
@@ -2111,17 +2101,14 @@ export function useLivelineEngine(
     const windowSecs = windowResult.windowSecs
     const windowTransProgress = windowResult.windowTransProgress
 
-    let rawRightEdge = now + windowSecs * buffer
-    // Clamp right edge so it doesn't extend far past the latest data point
-    // Clamp right edge for historical data (latest data far behind `now`)
-    if (effectivePoints.length > 0 && now - effectivePoints[effectivePoints.length - 1].time > windowSecs * 0.5) {
-      rawRightEdge = effectivePoints[effectivePoints.length - 1].time + windowSecs * buffer
-    }
-    const rightEdge = rawRightEdge
-    // Clamp left edge so the x-axis never extends before the earliest data
-    const rawLeftEdge = rightEdge - windowSecs
-    const firstTime = effectivePoints.length > 0 ? effectivePoints[0].time : rawLeftEdge
-    const leftEdge = Math.max(rawLeftEdge, firstTime)
+    // Clamp window to actual data span so oversized timeframes (e.g. "All")
+    // don't show empty space beyond available data
+    const firstTime = effectivePoints.length > 0 ? effectivePoints[0].time : now
+    const dataSpan = now - firstTime
+    const clampedWindow = dataSpan > 0 ? Math.min(windowSecs, dataSpan) : windowSecs
+
+    const rightEdge = now + clampedWindow * buffer
+    const leftEdge = rightEdge - clampedWindow
 
     // Filter visible points — when pausing, contract right edge to `now`
     // so new data (with real-time timestamps) can't appear past the live dot
