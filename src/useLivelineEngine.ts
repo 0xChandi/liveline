@@ -1535,7 +1535,7 @@ export function useLivelineEngine(
           if (tooltipDisplayXRef.current === null) {
             tooltipDisplayXRef.current = targetX
           } else {
-            tooltipDisplayXRef.current = lerp(tooltipDisplayXRef.current, targetX, 0.18, pausedDt)
+            tooltipDisplayXRef.current = lerp(tooltipDisplayXRef.current, targetX, 0.18, dt)
             if (Math.abs(tooltipDisplayXRef.current - targetX) < 0.5) tooltipDisplayXRef.current = targetX
           }
 
