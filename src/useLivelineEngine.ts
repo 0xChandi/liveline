@@ -1120,10 +1120,12 @@ export function useLivelineEngine(
       const windowTransProgress = windowResult.windowTransProgress
       const isWindowTransitioning = transition.startMs > 0
 
-      // Clamp window to actual data span so oversized timeframes don't show empty space
+      // Clamp window to actual data span so oversized timeframes don't show empty space.
+      // Only clamp when data spans less than 80% of the window.
       const firstCandleTime = effectiveCandles.length > 0 ? effectiveCandles[0].time : now
       const candleDataSpan = now - firstCandleTime
-      const clampedWindow = candleDataSpan > 0 ? Math.min(windowSecs, candleDataSpan) : windowSecs
+      const clampedWindow = candleDataSpan > 0 && candleDataSpan < windowSecs * 0.8
+        ? candleDataSpan : windowSecs
 
       const rightEdge = now + clampedWindow * candleBuffer
       const leftEdge = rightEdge - clampedWindow
@@ -1726,7 +1728,10 @@ export function useLivelineEngine(
     const isWindowTransitioning = transition.startMs > 0
 
     // Clamp window to actual data span so oversized timeframes (e.g. "All")
-    // don't show empty space beyond available data
+    // don't show empty space beyond available data.
+    // Only clamp when data spans less than 80% of the window — avoids
+    // squeezing nearly-full windows (e.g. 7D with 6.5 days of data)
+    // which shifts leftEdge and creates gaps between series.
     let earliestSeriesTime = now
     for (const s of effectiveMultiSeries) {
       const sData = pausedMultiDataRef.current?.get(s.id)?.data ?? s.data
@@ -1734,8 +1739,12 @@ export function useLivelineEngine(
         earliestSeriesTime = sData[0].time
       }
     }
+    if (hasBars && cfg.bars && cfg.bars.length > 0 && cfg.bars[0].time < earliestSeriesTime) {
+      earliestSeriesTime = cfg.bars[0].time
+    }
     const multiDataSpan = now - earliestSeriesTime
-    const clampedWindow = multiDataSpan > 0 ? Math.min(windowSecs, multiDataSpan) : windowSecs
+    const clampedWindow = multiDataSpan > 0 && multiDataSpan < windowSecs * 0.8
+      ? multiDataSpan : windowSecs
 
     const rightEdge = now + clampedWindow * buffer
     const leftEdge = rightEdge - clampedWindow
@@ -2102,10 +2111,17 @@ export function useLivelineEngine(
     const windowTransProgress = windowResult.windowTransProgress
 
     // Clamp window to actual data span so oversized timeframes (e.g. "All")
-    // don't show empty space beyond available data
-    const firstTime = effectivePoints.length > 0 ? effectivePoints[0].time : now
+    // don't show empty space beyond available data.
+    // Only clamp when data spans less than 80% of the window — avoids
+    // squeezing nearly-full windows (e.g. 7D with 6.5 days of data)
+    // which shifts leftEdge and creates gaps between series.
+    let firstTime = effectivePoints.length > 0 ? effectivePoints[0].time : now
+    if (hasBars && cfg.bars && cfg.bars.length > 0 && cfg.bars[0].time < firstTime) {
+      firstTime = cfg.bars[0].time
+    }
     const dataSpan = now - firstTime
-    const clampedWindow = dataSpan > 0 ? Math.min(windowSecs, dataSpan) : windowSecs
+    const clampedWindow = dataSpan > 0 && dataSpan < windowSecs * 0.8
+      ? dataSpan : windowSecs
 
     const rightEdge = now + clampedWindow * buffer
     const leftEdge = rightEdge - clampedWindow
