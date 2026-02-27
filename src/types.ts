@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ComponentType } from 'react'
 
 export interface LivelinePoint {
   time: number  // unix seconds
@@ -127,6 +127,9 @@ export interface LivelineProps {
   barColor?: string             // Override accent-derived bar color
   barLabels?: boolean           // Show value labels on bars (default: false)
 
+  // Custom tooltip
+  tooltip?: ComponentType<TooltipData>
+
   className?: string
   style?: CSSProperties
 }
@@ -145,6 +148,28 @@ export interface BarPoint {
 }
 
 export type BarMode = 'default' | 'overlay'
+
+// --- Custom tooltip ---
+
+export interface TooltipLineData {
+  mode: 'line'
+  time: number          // unix seconds
+  value: number         // interpolated value
+  x: number             // pixel x on canvas
+  y: number             // pixel y on canvas (value mapped to chart)
+  formattedValue: string
+  formattedTime: string
+}
+
+export interface TooltipCandleData {
+  mode: 'candle'
+  time: number          // unix seconds
+  candle: CandlePoint   // full OHLC
+  x: number             // pixel x on canvas
+  formattedTime: string
+}
+
+export type TooltipData = TooltipLineData | TooltipCandleData
 
 export interface LivelinePalette {
   // Line

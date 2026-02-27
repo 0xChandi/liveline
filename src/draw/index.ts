@@ -68,6 +68,7 @@ export interface DrawOptions {
   barFillColor?: string
   barLayout?: BarLayout
   barShowLabels?: boolean
+  skipTooltipText?: boolean
 }
 
 /**
@@ -271,6 +272,7 @@ export function drawFrame(
         opts.tooltipY,
         lastPt[0], // liveDotX — tooltip right edge stops here
         opts.tooltipOutline,
+        opts.skipTooltipText,
       )
     }
   }
@@ -509,6 +511,7 @@ export interface CandleDrawOptions {
   barFillColor?: string
   barLayout?: BarLayout
   barShowLabels?: boolean
+  skipTooltipText?: boolean
 }
 
 /**
@@ -755,6 +758,7 @@ export function drawCandleFrame(
         opts.hoverX, opts.hoveredCandle.close, opts.hoverTime ?? 0,
         opts.formatValue, opts.formatTime,
         opts.scrubAmount,
+        opts.skipTooltipText,
       )
     } else {
       drawCandleCrosshair(
@@ -762,6 +766,7 @@ export function drawCandleFrame(
         opts.hoverX, opts.hoveredCandle, opts.hoverTime ?? 0,
         opts.formatValue, opts.formatTime,
         opts.scrubAmount,
+        opts.skipTooltipText,
       )
     }
   }

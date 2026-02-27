@@ -19,6 +19,7 @@ export function drawCrosshair(
   tooltipY?: number,
   liveDotX?: number,
   tooltipOutline?: boolean,
+  skipText?: boolean,
 ) {
   if (scrubOpacity < 0.01) return
 
@@ -46,6 +47,9 @@ export function drawCrosshair(
     ctx.fillStyle = palette.line
     ctx.fill()
   }
+
+  // Skip text when custom tooltip is active
+  if (skipText) return
 
   // Top label: "$VALUE - TIME" — fixed at top, moves horizontally only
   // Skip text for small containers (text is ~200px wide)

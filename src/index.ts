@@ -18,4 +18,7 @@ export type {
   BadgeVariant,
   BarPoint,
   BarMode,
+  TooltipData,
+  TooltipLineData,
+  TooltipCandleData,
 } from './types'
