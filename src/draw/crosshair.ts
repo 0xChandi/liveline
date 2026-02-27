@@ -115,6 +115,7 @@ export function drawMultiCrosshair(
   tooltipY?: number,
   tooltipOutline?: boolean,
   liveDotX?: number,
+  skipTooltipText?: boolean,
 ) {
   if (scrubOpacity < 0.01 || entries.length === 0) return
 
@@ -144,6 +145,9 @@ export function drawMultiCrosshair(
       ctx.fill()
     }
   }
+
+  // Skip text when custom tooltip is active
+  if (skipTooltipText) return
 
   if (scrubOpacity < 0.1 || layout.w < 300) return
 

@@ -126,6 +126,12 @@ export function drawLine(
       : morphY(clampY(toY(p.value)), x)
     return [x, y]
   })
+
+  // Extend line to the left edge of the chart if the first data point
+  // doesn't reach it — prevents a visual gap when data starts after leftEdge
+  if (pts.length > 0 && pts[0][0] > pad.left + 1) {
+    pts.unshift([pad.left, pts[0][1]])
+  }
   // Tip X: at reveal=0 extends to full chart width (matching loading/empty line),
   // at reveal=1 sits at the live dot position. Smooth morph between.
   const liveTipX = toX(now)

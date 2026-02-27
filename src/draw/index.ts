@@ -324,6 +324,7 @@ export interface MultiSeriesDrawOptions {
   barFillColor?: string
   barLayout?: BarLayout
   barShowLabels?: boolean
+  skipTooltipText?: boolean
 }
 
 /**
@@ -510,6 +511,7 @@ export function drawMultiFrame(
         opts.tooltipY,
         opts.tooltipOutline,
         maxLiveDotX,
+        opts.skipTooltipText,
       )
     }
   }

@@ -102,6 +102,7 @@ export function Liveline({
       value: s.value,
       palette: seriesPalettes.get(s.id) ?? resolveTheme(s.color || SERIES_COLORS[i % SERIES_COLORS.length], theme),
       label: s.label,
+      opacity: s.opacity,
     }))
   }, [seriesProp, seriesPalettes, theme])
 
@@ -110,7 +111,8 @@ export function Liveline({
   const momentumOverride: Momentum | undefined =
     typeof momentum === 'string' ? momentum : undefined
 
-  const defaultRight = badge ? 80 : grid ? 54 : 12
+  const effectiveBadge = isMultiSeries ? false : badge
+  const defaultRight = effectiveBadge ? 80 : grid ? 54 : 12
   const pad = {
     top: paddingOverride?.top ?? 12,
     right: paddingOverride?.right ?? defaultRight,
@@ -191,7 +193,7 @@ export function Liveline({
     windowSecs: effectiveWindowSecs,
     lerpSpeed,
     showGrid: grid,
-    showBadge: isMultiSeries ? false : badge,
+    showBadge: effectiveBadge,
     showMomentum: isMultiSeries ? false : showMomentum,
     momentumOverride,
     showFill: isMultiSeries ? false : fill,

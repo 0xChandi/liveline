@@ -73,6 +73,7 @@ interface EngineConfig {
     value: number
     palette: LivelinePalette
     label?: string
+    opacity?: number
   }>
   isMultiSeries?: boolean
   hiddenSeriesIds?: Set<string>
@@ -635,7 +636,7 @@ export function useLivelineEngine(
 
   // Data stash for reverse morph (chart → flat line when data disappears)
   const lastDataRef = useRef<LivelinePoint[]>([])
-  const lastMultiSeriesRef = useRef<Array<{ id: string; data: LivelinePoint[]; value: number; palette: LivelinePalette; label?: string }>>([])
+  const lastMultiSeriesRef = useRef<Array<{ id: string; data: LivelinePoint[]; value: number; palette: LivelinePalette; label?: string; opacity?: number }>>([])
   const frozenNowRef = useRef(0)
 
   // Pause data snapshot — freeze visible data when pausing to prevent
@@ -952,7 +953,7 @@ export function useLivelineEngine(
       useMultiStash = !hasData && chartReveal > 0.005 && lastMultiSeriesRef.current.length > 0
       if (hasMultiData && cfg.multiSeries) {
         lastMultiSeriesRef.current = cfg.multiSeries.map(s => ({
-          id: s.id, data: s.data.slice(), value: s.value, palette: s.palette, label: s.label,
+          id: s.id, data: s.data.slice(), value: s.value, palette: s.palette, label: s.label, opacity: s.opacity,
         }))
       }
       // Clear multi stash when single-series data arrives
@@ -1119,7 +1120,10 @@ export function useLivelineEngine(
       const isWindowTransitioning = transition.startMs > 0
 
       const rightEdge = now + windowSecs * candleBuffer
-      const leftEdge = rightEdge - windowSecs
+      // Clamp left edge so the x-axis never extends before the earliest candle
+      const rawLeftEdge = rightEdge - windowSecs
+      const firstCandleTime = effectiveCandles.length > 0 ? effectiveCandles[0].time : rawLeftEdge
+      const leftEdge = Math.max(rawLeftEdge, firstCandleTime)
 
       // --- Live candle OHLC lerp ---
       let smoothLive: CandlePoint | undefined
@@ -1612,12 +1616,11 @@ export function useLivelineEngine(
 
     const effectiveMultiSeries = useMultiStash ? lastMultiSeriesRef.current : cfg.multiSeries!
 
-    // Reserve just enough right-side space so endpoint labels don't overlap
-    // grid value text (which starts at w - pad.right + 8). Labels are drawn
-    // at lineEnd + 6, so overlap = labelW + 6 - 8 = labelW - 2.
-    // Scale with chartReveal so layout doesn't shift during loading collapse.
+    // Reserve right-side space for endpoint labels only when the grid is on,
+    // so labels don't overlap grid value text. When grid is off, labels draw
+    // freely into pad.right with no extra reserve needed.
     let labelReserve = 0
-    if (effectiveMultiSeries.some(s => s.label)) {
+    if (cfg.showGrid && effectiveMultiSeries.some(s => s.label)) {
       ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
       let maxLabelW = 0
       for (const s of effectiveMultiSeries) {
@@ -1626,7 +1629,8 @@ export function useLivelineEngine(
           if (lw > maxLabelW) maxLabelW = lw
         }
       }
-      labelReserve = Math.max(0, maxLabelW - 2) * chartReveal
+      const labelNeed = maxLabelW + 6
+      labelReserve = Math.max(0, labelNeed - pad.right) * chartReveal
     }
 
     const chartW = w - pad.left - pad.right - labelReserve
@@ -1670,10 +1674,11 @@ export function useLivelineEngine(
     const seriesAlphas = seriesAlphaRef.current
     for (const s of effectiveMultiSeries) {
       let alpha = seriesAlphas.get(s.id) ?? 1
-      const target = hiddenIds?.has(s.id) ? 0 : 1
+      const baseOpacity = s.opacity ?? 1
+      const target = hiddenIds?.has(s.id) ? 0 : baseOpacity
       alpha = noMotion ? target : lerp(alpha, target, SERIES_TOGGLE_SPEED, pausedDt)
       if (alpha < 0.01) alpha = 0
-      if (alpha > 0.99) alpha = 1
+      if (alpha > target - 0.01) alpha = target
       seriesAlphas.set(s.id, alpha)
     }
 
@@ -1714,7 +1719,18 @@ export function useLivelineEngine(
     const isWindowTransitioning = transition.startMs > 0
 
     const rightEdge = now + windowSecs * buffer
-    const leftEdge = rightEdge - windowSecs
+    // Clamp left edge so the x-axis never extends before the earliest series data
+    const rawLeftEdge = rightEdge - windowSecs
+    let earliestSeriesTime = Infinity
+    for (const s of effectiveMultiSeries) {
+      const sData = pausedMultiDataRef.current?.get(s.id)?.data ?? s.data
+      if (sData.length > 0 && sData[0].time < earliestSeriesTime) {
+        earliestSeriesTime = sData[0].time
+      }
+    }
+    const leftEdge = isFinite(earliestSeriesTime)
+      ? Math.max(rawLeftEdge, earliestSeriesTime)
+      : rawLeftEdge
     const filterRight = rightEdge - (rightEdge - now) * pauseProgress
 
     // Build per-series visible arrays and compute global range
@@ -1915,6 +1931,7 @@ export function useLivelineEngine(
       pauseProgress,
       now_ms,
       primaryPalette: cfg.palette,
+      skipTooltipText: !!cfg.tooltip,
       ...(multiBarDrawOpts ? {
         bars: multiBarDrawOpts.bars,
         barWidthSecs: multiBarDrawOpts.barWidthSecs,
@@ -1924,6 +1941,84 @@ export function useLivelineEngine(
         barShowLabels: multiBarDrawOpts.barShowLabels,
       } : {}),
     })
+
+    // --- Custom tooltip positioning (multi-series mode) ---
+    if (cfg.tooltipWrapperRef?.current) {
+      const wrapper = cfg.tooltipWrapperRef.current
+      if (drawHoverX !== null && drawHoverTime !== null && hoverEntries.length > 0
+          && scrubAmountRef.current > 0.01) {
+        // Compute scrubOpacity with same fade-near-live-dot logic as drawMultiFrame
+        let maxLiveDotX = 0
+        for (const entry of seriesEntries) {
+          if ((entry.alpha ?? 1) < 0.01) continue
+          const lastPt = entry.visible[entry.visible.length - 1]
+          if (lastPt) {
+            const x = layout.toX(lastPt.time)
+            if (x > maxLiveDotX) maxLiveDotX = x
+          }
+        }
+        const distToLive = maxLiveDotX - drawHoverX
+        const fadeStart = Math.min(80, layout.chartW * 0.3)
+        const fadeMinPx = 5
+        const rawScrub = distToLive < fadeMinPx ? 0
+          : distToLive >= fadeStart ? scrubAmountRef.current
+          : ((distToLive - fadeMinPx) / (fadeStart - fadeMinPx)) * scrubAmountRef.current
+        const scrubOpacity = Math.min(rawScrub * 3, 1)
+
+        // Measure tooltip for positioning
+        const tooltipEl = wrapper.firstElementChild as HTMLElement | null
+        const tooltipW = tooltipEl?.offsetWidth ?? 0
+        const gap = 12
+
+        // Place tooltip on whichever side of the crosshair has more space
+        const spaceLeft = drawHoverX - pad.left
+        const spaceRight = w - pad.right - drawHoverX
+        let targetX: number
+        if (spaceRight >= tooltipW + gap || spaceRight >= spaceLeft) {
+          targetX = drawHoverX + gap
+          if (targetX + tooltipW > w - pad.right) targetX = w - pad.right - tooltipW
+        } else {
+          targetX = drawHoverX - gap - tooltipW
+          if (targetX < pad.left) targetX = pad.left
+        }
+
+        // Lerp X for smooth side transitions
+        if (tooltipDisplayXRef.current === null) {
+          tooltipDisplayXRef.current = targetX
+        } else {
+          tooltipDisplayXRef.current = lerp(tooltipDisplayXRef.current, targetX, 0.18, dt)
+          if (Math.abs(tooltipDisplayXRef.current - targetX) < 0.5) tooltipDisplayXRef.current = targetX
+        }
+
+        const ty = pad.top + (cfg.tooltipY ?? 14)
+
+        wrapper.style.opacity = String(scrubOpacity)
+        wrapper.style.transform = `translate3d(${tooltipDisplayXRef.current}px, ${ty}px, 0)`
+
+        // Update tooltip data only when meaningfully changed — use first entry's value
+        const primaryValue = hoverEntries[0]?.value ?? 0
+        const key = `line:${Math.round(drawHoverTime)}:${Math.round(primaryValue * 100)}`
+        if (lastTooltipKeyRef.current !== key) {
+          lastTooltipKeyRef.current = key
+          cfg.onTooltipData?.({
+            mode: 'line',
+            time: drawHoverTime,
+            value: primaryValue,
+            x: drawHoverX,
+            y: layout.toY(primaryValue),
+            formattedValue: cfg.formatValue(primaryValue),
+            formattedTime: cfg.formatTime(drawHoverTime),
+          })
+        }
+      } else if (scrubAmountRef.current < 0.01) {
+        wrapper.style.opacity = '0'
+        tooltipDisplayXRef.current = null
+        if (lastTooltipKeyRef.current !== null) {
+          lastTooltipKeyRef.current = null
+          cfg.onTooltipData?.(null)
+        }
+      }
+    }
 
     // During reverse morph (chart → loading/empty), overlay the empty text
     // as chartReveal drops — identical to single-series behavior
@@ -1989,7 +2084,10 @@ export function useLivelineEngine(
     const windowTransProgress = windowResult.windowTransProgress
 
     const rightEdge = now + windowSecs * buffer
-    const leftEdge = rightEdge - windowSecs
+    // Clamp left edge so the x-axis never extends before the earliest data
+    const rawLeftEdge = rightEdge - windowSecs
+    const firstTime = effectivePoints.length > 0 ? effectivePoints[0].time : rawLeftEdge
+    const leftEdge = Math.max(rawLeftEdge, firstTime)
 
     // Filter visible points — when pausing, contract right edge to `now`
     // so new data (with real-time timestamps) can't appear past the live dot

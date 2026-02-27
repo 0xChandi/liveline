@@ -52,6 +52,7 @@ export interface LivelineSeries {
   value: number
   color: string
   label?: string
+  opacity?: number  // 0–1, default 1. Controls the base opacity of this series line.
 }
 
 export interface LivelineProps {
