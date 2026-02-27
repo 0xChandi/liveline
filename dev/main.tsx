@@ -73,6 +73,12 @@ const TICK_RATES: { label: string; ms: number }[] = [
 
 const VOLATILITIES: Volatility[] = ['calm', 'normal', 'spiky', 'chaos']
 
+// Derived — must come after the arrays they reference
+const MAX_WINDOW_SECS = Math.max(...TIME_WINDOWS.map(w => w.secs))
+const SEED_INTERVAL = 0.5
+const SEED_COUNT = Math.ceil(MAX_WINDOW_SECS / SEED_INTERVAL) + 10
+const MAX_POINTS = Math.ceil(MAX_WINDOW_SECS / (Math.min(...TICK_RATES.map(t => t.ms)) / 1000)) + 100
+
 // --- Demo ---
 
 function Demo() {
@@ -119,8 +125,8 @@ function Demo() {
     const now = Date.now() / 1000
     const seed: LivelinePoint[] = []
     let v = 100
-    for (let i = 60; i >= 0; i--) {
-      const pt = generatePoint(v, now - i * 0.5, volatilityRef.current)
+    for (let i = SEED_COUNT; i >= 0; i--) {
+      const pt = generatePoint(v, now - i * SEED_INTERVAL, volatilityRef.current)
       seed.push(pt)
       v = pt.value
     }
@@ -139,7 +145,7 @@ function Demo() {
         setValue(pt.value)
         setBars(b => addTickToBars(b, pt, prevVal, barBucketSecs))
         const next = [...prev, pt]
-        return next.length > 500 ? next.slice(-500) : next
+        return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next
       })
     }, tickRate)
   }, [tickRate])
@@ -186,7 +192,7 @@ function Demo() {
         setValue(pt.value)
         setBars(b => addTickToBars(b, pt, prevVal, barBucketSecs))
         const next = [...prev, pt]
-        return next.length > 500 ? next.slice(-500) : next
+        return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next
       })
     }, tickRate)
     return () => clearInterval(intervalRef.current)

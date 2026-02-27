@@ -60,13 +60,20 @@ export function drawBars(
 
     const barY = barLayout.bottom - barH
 
-    // Scrub dimming: bars to the right of scrubX are dimmed
+    // Scrub dimming: linear fade as scrubX crosses the bar
     if (scrubX !== null && scrubAmount > 0.05) {
+      const barLeft = x
       const barCenter = centerX
-      if (barCenter > scrubX) {
+      if (scrubX >= barCenter) {
+        // Scrub is past center — bar is fully bright
+        ctx.globalAlpha = baseAlpha
+      } else if (scrubX <= barLeft) {
+        // Scrub hasn't reached this bar — fully dimmed
         ctx.globalAlpha = baseAlpha * (1 - scrubAmount * 0.6)
       } else {
-        ctx.globalAlpha = baseAlpha
+        // Scrub is within left edge to center — linear interpolation
+        const t = (scrubX - barLeft) / (barCenter - barLeft)
+        ctx.globalAlpha = baseAlpha * (1 - scrubAmount * 0.6 * (1 - t))
       }
     }
 
