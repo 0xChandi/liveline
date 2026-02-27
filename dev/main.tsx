@@ -471,6 +471,11 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
   const [showRef, setShowRef] = useState(false)
   const [pulse, setPulse] = useState(true)
   const [compactToggle, setCompactToggle] = useState(false)
+  const [multiBars, setMultiBars] = useState<BarPoint[]>([])
+  const [multiBarMode, setMultiBarMode] = useState<'default' | 'overlay'>('default')
+  const [multiBarLabels, setMultiBarLabels] = useState(false)
+  const [showBars, setShowBars] = useState(false)
+  const multiBarBucketSecs = 2
   const intervalRef = useRef<number>(0)
   const seriesCountRef = useRef(seriesCount)
   seriesCountRef.current = seriesCount
@@ -491,6 +496,7 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
       return { id: label.toLowerCase(), data: seed, value: v, color: MULTI_COLORS[i], label }
     })
     setSeries(initial)
+    setMultiBars(generateBars(initial[0].data, multiBarBucketSecs))
 
     intervalRef.current = window.setInterval(() => {
       const c = seriesCountRef.current
@@ -510,13 +516,21 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
           }
           next.push({ id: MULTI_LABELS[i].toLowerCase(), data: seed, value: v, color: MULTI_COLORS[i], label: MULTI_LABELS[i] })
         }
-        return next.map((s, i) => {
+        const updated = next.map((s, i) => {
           const now = Date.now() / 1000
           const delta = (Math.random() - MULTI_BIASES[i]) * 1.2
           const newVal = Math.max(10, Math.min(90, s.value + delta))
           const newData = [...s.data, { time: now, value: newVal }]
           return { ...s, data: newData.length > 2000 ? newData.slice(-2000) : newData, value: newVal }
         })
+        // Update volume bars from first series
+        const first = updated[0]
+        const prevFirst = next[0]
+        if (first && prevFirst) {
+          const lastPt = first.data[first.data.length - 1]
+          setMultiBars(b => addTickToBars(b, lastPt, prevFirst.value, multiBarBucketSecs))
+        }
+        return updated
       })
     }, 300)
   }, [])
@@ -524,20 +538,20 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
   useEffect(() => {
     if (scenario === 'loading') {
       setLoading(true)
-      setSeries([])
+      setSeries([]); setMultiBars([])
       clearInterval(intervalRef.current)
       const timer = setTimeout(() => setScenario('live'), 3000)
       return () => clearTimeout(timer)
     }
     if (scenario === 'loading-hold') {
       setLoading(true)
-      setSeries([])
+      setSeries([]); setMultiBars([])
       clearInterval(intervalRef.current)
       return
     }
     if (scenario === 'empty') {
       setLoading(false)
-      setSeries([])
+      setSeries([]); setMultiBars([])
       clearInterval(intervalRef.current)
       return
     }
@@ -592,6 +606,19 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
         <Toggle on={compactToggle} onToggle={setCompactToggle}>Compact Toggle</Toggle>
       </Section>
 
+      <Section label="Bars">
+        <Toggle on={showBars} onToggle={setShowBars}>Enable</Toggle>
+        {showBars && (
+          <>
+            <Sep />
+            <Btn active={multiBarMode === 'default'} onClick={() => setMultiBarMode('default')}>Default</Btn>
+            <Btn active={multiBarMode === 'overlay'} onClick={() => setMultiBarMode('overlay')}>Overlay</Btn>
+            <Sep />
+            <Toggle on={multiBarLabels} onToggle={setMultiBarLabels}>Labels</Toggle>
+          </>
+        )}
+      </Section>
+
       <div style={{
         height: 300,
         background: 'var(--fg-02)',
@@ -620,6 +647,10 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
           formatValue={(v) => v.toFixed(1) + '%'}
           seriesToggleCompact={compactToggle}
           onSeriesToggle={(id, vis) => console.log('series toggle:', id, vis)}
+          bars={showBars ? multiBars : undefined}
+          barMode={multiBarMode}
+          barWidth={multiBarBucketSecs}
+          barLabels={multiBarLabels}
         />
       </div>
 

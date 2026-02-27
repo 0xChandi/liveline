@@ -317,6 +317,13 @@ export interface MultiSeriesDrawOptions {
   now_ms: number
   /** Primary palette (from first series) for grid/axis/crosshair colors */
   primaryPalette: LivelinePalette
+  // Bar chart
+  bars?: BarPoint[]
+  barWidthSecs?: number
+  barMode?: 'default' | 'overlay'
+  barFillColor?: string
+  barLayout?: BarLayout
+  barShowLabels?: boolean
 }
 
 /**
@@ -351,6 +358,26 @@ export function drawMultiFrame(
       ctx.save()
       if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
       drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+      ctx.restore()
+    }
+  }
+
+  // 2c. Bars — overlay mode (behind lines)
+  if (opts.bars && opts.barLayout && opts.barWidthSecs && opts.barMode === 'overlay' && opts.barFillColor) {
+    const barAlpha = reveal < 1 ? revealRamp(0.1, 0.6) : 1
+    if (barAlpha > 0.01) {
+      ctx.save()
+      if (barAlpha < 1) ctx.globalAlpha = barAlpha
+      drawBars(ctx, layout, opts.barLayout, {
+        bars: opts.bars,
+        barWidthSecs: opts.barWidthSecs,
+        fillColor: opts.barFillColor,
+        labelColor: palette.gridLabel,
+        scrubX: opts.scrubAmount > 0.05 ? opts.hoverX : null,
+        scrubAmount: opts.scrubAmount,
+        revealProgress: reveal < 1 ? revealRamp(0.1, 0.8) : 1,
+        showLabels: opts.barShowLabels ?? false,
+      })
       ctx.restore()
     }
   }
@@ -420,6 +447,29 @@ export function drawMultiFrame(
         ctx.fillStyle = entry.palette.line
         ctx.fillText(entry.label, lastPt[0] + 6, lastPt[1] + 3.5)
       }
+      ctx.restore()
+    }
+  }
+
+  // 5b. Bars — default mode (separate bottom strip)
+  if (opts.bars && opts.barLayout && opts.barWidthSecs && opts.barMode === 'default' && opts.barFillColor) {
+    const barAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (barAlpha > 0.01) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(layout.pad.left, opts.barLayout.bottom - opts.barLayout.maxHeight, layout.chartW, opts.barLayout.maxHeight)
+      ctx.clip()
+      if (barAlpha < 1) ctx.globalAlpha = barAlpha
+      drawBars(ctx, layout, opts.barLayout, {
+        bars: opts.bars,
+        barWidthSecs: opts.barWidthSecs,
+        fillColor: opts.barFillColor,
+        labelColor: palette.gridLabel,
+        scrubX: opts.scrubAmount > 0.05 ? opts.hoverX : null,
+        scrubAmount: opts.scrubAmount,
+        revealProgress: reveal < 1 ? revealRamp(0.1, 0.8) : 1,
+        showLabels: opts.barShowLabels ?? false,
+      })
       ctx.restore()
     }
   }

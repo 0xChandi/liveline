@@ -1837,6 +1837,60 @@ export function useLivelineEngine(
       hoverEntries = lastHoverEntriesRef.current
     }
 
+    // --- Bar chart computation (multi-series) ---
+    let multiBarDrawOpts: {
+      bars: BarPoint[]; barWidthSecs: number; barMode: BarMode
+      barFillColor: string; barLayout: { bottom: number; maxHeight: number; maxValue: number }
+      barShowLabels: boolean
+    } | undefined
+    if (hasBars && cfg.bars && cfg.barWidthSecs) {
+      const barMode = cfg.barMode ?? 'default'
+      const visibleBars: BarPoint[] = []
+      for (const b of cfg.bars) {
+        if (b.time + cfg.barWidthSecs >= leftEdge && b.time <= rightEdge) {
+          visibleBars.push(b)
+        }
+      }
+      if (visibleBars.length > 0) {
+        let rawBarMax = 0
+        for (const b of visibleBars) { if (b.value > rawBarMax) rawBarMax = b.value }
+        rawBarMax *= 1.05
+
+        targetBarMaxRef.current = rawBarMax
+        if (!barMaxInitedRef.current) {
+          displayBarMaxRef.current = rawBarMax
+          barMaxInitedRef.current = true
+        } else {
+          const gap = Math.abs(displayBarMaxRef.current - targetBarMaxRef.current)
+          const gapRatio = displayBarMaxRef.current > 0 ? Math.min(gap / displayBarMaxRef.current, 1) : 1
+          const barSpeed = RANGE_LERP_SPEED + (1 - gapRatio) * RANGE_ADAPTIVE_BOOST
+          displayBarMaxRef.current = lerp(displayBarMaxRef.current, targetBarMaxRef.current, barSpeed, pausedDt)
+          const barStripPx = barMode === 'default' ? barStripH : chartH * BAR_OVERLAY_MAX_RATIO
+          const pxThreshold = barStripPx > 0 ? 0.5 * displayBarMaxRef.current / barStripPx : 0.001
+          if (Math.abs(displayBarMaxRef.current - targetBarMaxRef.current) < pxThreshold) {
+            displayBarMaxRef.current = targetBarMaxRef.current
+          }
+        }
+        const barMax = displayBarMaxRef.current
+
+        const barFillColor = cfg.barColor
+          ?? (barMode === 'overlay' ? cfg.palette.barFillOverlay : cfg.palette.barFill)
+
+        const barLayout = barMode === 'default'
+          ? { bottom: h - pad.bottom, maxHeight: barStripH, maxValue: barMax }
+          : { bottom: pad.top + chartH, maxHeight: chartH * BAR_OVERLAY_MAX_RATIO, maxValue: barMax }
+
+        multiBarDrawOpts = {
+          bars: visibleBars,
+          barWidthSecs: cfg.barWidthSecs,
+          barMode,
+          barFillColor,
+          barLayout,
+          barShowLabels: cfg.barLabels ?? false,
+        }
+      }
+    }
+
     // Draw multi-series frame
     drawMultiFrame(ctx, layout, {
       series: seriesEntries,
@@ -1861,6 +1915,14 @@ export function useLivelineEngine(
       pauseProgress,
       now_ms,
       primaryPalette: cfg.palette,
+      ...(multiBarDrawOpts ? {
+        bars: multiBarDrawOpts.bars,
+        barWidthSecs: multiBarDrawOpts.barWidthSecs,
+        barMode: multiBarDrawOpts.barMode,
+        barFillColor: multiBarDrawOpts.barFillColor,
+        barLayout: multiBarDrawOpts.barLayout,
+        barShowLabels: multiBarDrawOpts.barShowLabels,
+      } : {}),
     })
 
     // During reverse morph (chart → loading/empty), overlay the empty text
