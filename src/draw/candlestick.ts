@@ -225,6 +225,7 @@ export function drawCandleCrosshair(
   formatValue: (v: number) => string,
   formatTime: (t: number) => string,
   opacity: number,
+  skipText?: boolean,
 ) {
   if (opacity < 0.01) return
 
@@ -240,6 +241,9 @@ export function drawCandleCrosshair(
   ctx.lineTo(hoverX, h - pad.bottom)
   ctx.stroke()
   ctx.restore()
+
+  // Skip text when custom tooltip is active
+  if (skipText) return
 
   // Tooltip — OHLC + time (matches line chart crosshair patterns)
   if (opacity < 0.1 || layout.w < 200) return
@@ -333,6 +337,7 @@ export function drawLineModeCrosshair(
   formatValue: (v: number) => string,
   formatTime: (t: number) => string,
   opacity: number,
+  skipText?: boolean,
 ) {
   if (opacity < 0.01) return
 
@@ -354,6 +359,9 @@ export function drawLineModeCrosshair(
   ctx.lineTo(layout.w - pad.right, y)
   ctx.stroke()
   ctx.restore()
+
+  // Skip text when custom tooltip is active
+  if (skipText) return
 
   if (opacity < 0.1 || layout.w < 200) return
 

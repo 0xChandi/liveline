@@ -1,5 +1,5 @@
-import { useRef, useState, useLayoutEffect, useMemo } from 'react'
-import type { LivelineProps, Momentum, DegenOptions } from './types'
+import { useRef, useState, useLayoutEffect, useMemo, createElement } from 'react'
+import type { LivelineProps, Momentum, DegenOptions, TooltipData } from './types'
 import { resolveTheme } from './theme'
 import { useLivelineEngine } from './useLivelineEngine'
 
@@ -60,12 +60,15 @@ export function Liveline({
   barWidth,
   barColor,
   barLabels,
+  tooltip,
   className,
   style,
 }: LivelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const valueDisplayRef = useRef<HTMLSpanElement>(null)
+  const tooltipWrapperRef = useRef<HTMLDivElement>(null)
+  const [tooltipData, setTooltipData] = useState<TooltipData | null>(null)
   const windowBarRef = useRef<HTMLDivElement>(null)
   const windowBtnRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number } | null>(null)
@@ -178,6 +181,9 @@ export function Liveline({
     barColor,
     barWidthSecs: barWidth,
     barLabels,
+    tooltip: tooltip ?? undefined,
+    tooltipWrapperRef: tooltip ? tooltipWrapperRef : undefined,
+    onTooltipData: tooltip ? setTooltipData : undefined,
   })
 
   const cursorStyle = scrub ? cursor : 'default'
@@ -378,6 +384,22 @@ export function Liveline({
           ref={canvasRef}
           style={{ display: 'block', cursor: cursorStyle }}
         />
+        {tooltip && (
+          <div
+            ref={tooltipWrapperRef}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              pointerEvents: 'none',
+              willChange: 'transform, opacity',
+              zIndex: 2,
+              opacity: 0,
+            }}
+          >
+            {tooltipData && createElement(tooltip, tooltipData)}
+          </div>
+        )}
       </div>
     </>
   )

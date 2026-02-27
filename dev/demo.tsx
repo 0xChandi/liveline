@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Liveline } from 'liveline'
-import type { LivelinePoint, CandlePoint, BarPoint } from 'liveline'
+import type { LivelinePoint, CandlePoint, BarPoint, TooltipData } from 'liveline'
 
 // --- Data generators ---
 
@@ -111,6 +111,44 @@ type Preset = 'dev' | 'crypto'
 
 const formatCrypto = (v: number) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// --- Custom tooltip component ---
+
+function DemoTooltip(data: TooltipData) {
+  const d = new Date(data.time * 1000)
+  const time = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const price = data.mode === 'line'
+    ? data.formattedValue
+    : data.candle.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  return (
+    <div style={{
+      background: 'rgba(30, 30, 30, 0.95)',
+      borderRadius: 10,
+      padding: '10px 16px',
+      minWidth: 160,
+      backdropFilter: 'blur(8px)',
+      border: '1px solid rgba(255,255,255,0.08)',
+    }}>
+      <div style={{
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.45)',
+        marginBottom: 8,
+      }}>
+        {time}
+      </div>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 24,
+      }}>
+        <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.55)' }}>Price</span>
+        <span style={{ fontSize: 14, color: '#fff', fontWeight: 500 }}>{price}</span>
+      </div>
+    </div>
+  )
+}
+
 // --- Demo ---
 
 function Demo() {
@@ -127,6 +165,7 @@ function Demo() {
   const [badge, setBadge] = useState(true)
   const [scrub, setScrub] = useState(true)
 
+  const [customTooltip, setCustomTooltip] = useState(false)
   const [volatility, setVolatility] = useState<Volatility>('normal')
   const [tickRate, setTickRate] = useState(300)
   const [bars, setBars] = useState<BarPoint[]>([])
@@ -395,6 +434,7 @@ function Demo() {
         <Toggle on={grid} onToggle={setGrid}>Grid</Toggle>
         <Toggle on={badge} onToggle={setBadge}>Badge</Toggle>
         <Toggle on={scrub} onToggle={setScrub}>Scrub</Toggle>
+        <Toggle on={customTooltip} onToggle={setCustomTooltip}>Custom Tooltip</Toggle>
       </Section>
 
       {/* Main chart */}
@@ -428,6 +468,7 @@ function Demo() {
           grid={grid}
           badge={badge}
           scrub={scrub}
+          tooltip={customTooltip ? DemoTooltip : undefined}
         />
       </div>
 
@@ -471,6 +512,7 @@ function Demo() {
                 grid={grid && size.w >= 200}
                 badge={badge && size.w >= 200}
                 scrub={scrub}
+                tooltip={customTooltip ? DemoTooltip : undefined}
               />
             </div>
           </div>
@@ -518,6 +560,7 @@ function Demo() {
           barMode={barMode}
           barWidth={barBucketSecs}
           barLabels={barLabels}
+          tooltip={customTooltip ? DemoTooltip : undefined}
         />
       </div>
 

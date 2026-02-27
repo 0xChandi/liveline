@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react'
-import type { LivelinePoint, LivelinePalette, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint, BarPoint, BarMode } from './types'
+import type { LivelinePoint, LivelinePalette, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint, BarPoint, BarMode, TooltipData } from './types'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
@@ -59,6 +59,11 @@ interface EngineConfig {
   barColor?: string
   barWidthSecs?: number
   barLabels?: boolean
+
+  // Custom tooltip
+  tooltip?: React.ComponentType<TooltipData>
+  tooltipWrapperRef?: React.RefObject<HTMLDivElement | null>
+  onTooltipData?: (data: TooltipData | null) => void
 }
 
 interface BadgeEls {
@@ -600,6 +605,10 @@ export function useLivelineEngine(
   const hoverXRef = useRef<number | null>(null)
   const scrubAmountRef = useRef(0) // 0 = not scrubbing, 1 = fully scrubbing
   const lastHoverRef = useRef<{ x: number; value: number; time: number } | null>(null)
+
+  // Custom tooltip tracking — avoid unnecessary React re-renders
+  const lastTooltipKeyRef = useRef<string | null>(null)
+  const tooltipDisplayXRef = useRef<number | null>(null) // lerped X for smooth side transitions
 
   // Reveal state (loading → chart morph)
   const chartRevealRef = useRef(0) // 0 = loading/empty, 1 = fully revealed
@@ -1453,7 +1462,82 @@ export function useLivelineEngine(
         barFillColor: candleBarDrawOpts?.barFillColor,
         barLayout: candleBarDrawOpts?.barLayout,
         barShowLabels: candleBarDrawOpts?.barShowLabels,
+        skipTooltipText: !!cfg.tooltip,
       })
+
+      // --- Custom tooltip positioning (candle mode) ---
+      if (cfg.tooltipWrapperRef?.current) {
+        const wrapper = cfg.tooltipWrapperRef.current
+        if (drawHoverX !== null && drawHoverCandle && scrubAmount > 0.01) {
+          // Faster fade: ramp opacity quicker so tooltip appears/disappears snappily
+          const tooltipOpacity = Math.min(scrubAmount * 3, 1)
+
+          // Measure tooltip for positioning
+          const tooltipEl = wrapper.firstElementChild as HTMLElement | null
+          const tooltipW = tooltipEl?.offsetWidth ?? 0
+          const gap = 12 // gap between crosshair line and tooltip edge
+
+          // Place tooltip on whichever side of the crosshair has more space
+          const spaceLeft = drawHoverX - pad.left
+          const spaceRight = w - pad.right - drawHoverX
+          let targetX: number
+          if (spaceRight >= tooltipW + gap || spaceRight >= spaceLeft) {
+            targetX = drawHoverX + gap
+            if (targetX + tooltipW > w - pad.right) targetX = w - pad.right - tooltipW
+          } else {
+            targetX = drawHoverX - gap - tooltipW
+            if (targetX < pad.left) targetX = pad.left
+          }
+
+          // Lerp X for smooth side transitions
+          if (tooltipDisplayXRef.current === null) {
+            tooltipDisplayXRef.current = targetX
+          } else {
+            tooltipDisplayXRef.current = lerp(tooltipDisplayXRef.current, targetX, 0.18, pausedDt)
+            if (Math.abs(tooltipDisplayXRef.current - targetX) < 0.5) tooltipDisplayXRef.current = targetX
+          }
+
+          const ty = pad.top + (cfg.tooltipY ?? 14)
+
+          wrapper.style.opacity = String(tooltipOpacity)
+          wrapper.style.transform = `translate3d(${tooltipDisplayXRef.current}px, ${ty}px, 0)`
+
+          // Update tooltip data only when meaningfully changed
+          const candleKey = drawHoverCandle.time
+          const key = lineModeProg > 0.5
+            ? `line:${Math.round(drawHoverTime)}:${Math.round(drawHoverCandle.close * 100)}`
+            : `candle:${candleKey}`
+          if (lastTooltipKeyRef.current !== key) {
+            lastTooltipKeyRef.current = key
+            if (lineModeProg > 0.5) {
+              cfg.onTooltipData?.({
+                mode: 'line',
+                time: drawHoverTime,
+                value: drawHoverCandle.close,
+                x: drawHoverX,
+                y: layout.toY(drawHoverCandle.close),
+                formattedValue: cfg.formatValue(drawHoverCandle.close),
+                formattedTime: cfg.formatTime(drawHoverTime),
+              })
+            } else {
+              cfg.onTooltipData?.({
+                mode: 'candle',
+                time: drawHoverTime,
+                candle: drawHoverCandle,
+                x: drawHoverX,
+                formattedTime: cfg.formatTime(drawHoverTime),
+              })
+            }
+          }
+        } else if (scrubAmount < 0.01) {
+          wrapper.style.opacity = '0'
+          tooltipDisplayXRef.current = null // reset so next hover starts at target
+          if (lastTooltipKeyRef.current !== null) {
+            lastTooltipKeyRef.current = null
+            cfg.onTooltipData?.(null)
+          }
+        }
+      }
 
       // Badge in candle mode — only when in line mode (lineModeProg > 0.5)
       if (badgeRef.current) {
@@ -1689,6 +1773,7 @@ export function useLivelineEngine(
       barFillColor: barDrawOpts?.barFillColor,
       barLayout: barDrawOpts?.barLayout,
       barShowLabels: barDrawOpts?.barShowLabels,
+      skipTooltipText: !!cfg.tooltip,
     })
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on
@@ -1728,6 +1813,77 @@ export function useLivelineEngine(
         const mc = momentum === 'up' ? '#22c55e' : momentum === 'down' ? '#ef4444' : ''
         if (mc) valEl.style.color = mc
         else valEl.style.removeProperty('color')
+      }
+    }
+
+    // --- Custom tooltip positioning (line mode) ---
+    if (cfg.tooltipWrapperRef?.current) {
+      const wrapper = cfg.tooltipWrapperRef.current
+      if (drawHoverX !== null && drawHoverValue !== null && drawHoverTime !== null
+          && scrubAmountRef.current > 0.01) {
+        // Compute scrubOpacity with same fade-near-live-dot logic as drawFrame
+        const lastVisIdx = visible.length - 1
+        const liveDotX = lastVisIdx >= 0 ? layout.toX(visible[lastVisIdx].time) : w - pad.right
+        const distToLive = liveDotX - drawHoverX
+        const fadeStart = Math.min(80, layout.chartW * 0.3)
+        const fadeMinPx = 5
+        const rawScrub = distToLive < fadeMinPx ? 0
+          : distToLive >= fadeStart ? scrubAmountRef.current
+          : ((distToLive - fadeMinPx) / (fadeStart - fadeMinPx)) * scrubAmountRef.current
+        // Faster fade: ramp opacity quicker so tooltip appears/disappears snappily
+        const scrubOpacity = Math.min(rawScrub * 3, 1)
+
+        // Measure tooltip for positioning
+        const tooltipEl = wrapper.firstElementChild as HTMLElement | null
+        const tooltipW = tooltipEl?.offsetWidth ?? 0
+        const gap = 12 // gap between crosshair line and tooltip edge
+
+        // Place tooltip on whichever side of the crosshair has more space
+        const spaceLeft = drawHoverX - pad.left
+        const spaceRight = w - pad.right - drawHoverX
+        let targetX: number
+        if (spaceRight >= tooltipW + gap || spaceRight >= spaceLeft) {
+          targetX = drawHoverX + gap
+          if (targetX + tooltipW > w - pad.right) targetX = w - pad.right - tooltipW
+        } else {
+          targetX = drawHoverX - gap - tooltipW
+          if (targetX < pad.left) targetX = pad.left
+        }
+
+        // Lerp X for smooth side transitions
+        if (tooltipDisplayXRef.current === null) {
+          tooltipDisplayXRef.current = targetX
+        } else {
+          tooltipDisplayXRef.current = lerp(tooltipDisplayXRef.current, targetX, 0.18, dt)
+          if (Math.abs(tooltipDisplayXRef.current - targetX) < 0.5) tooltipDisplayXRef.current = targetX
+        }
+
+        const ty = pad.top + (cfg.tooltipY ?? 14)
+
+        wrapper.style.opacity = String(scrubOpacity)
+        wrapper.style.transform = `translate3d(${tooltipDisplayXRef.current}px, ${ty}px, 0)`
+
+        // Update tooltip data only when meaningfully changed
+        const key = `line:${Math.round(drawHoverTime)}:${Math.round(drawHoverValue * 100)}`
+        if (lastTooltipKeyRef.current !== key) {
+          lastTooltipKeyRef.current = key
+          cfg.onTooltipData?.({
+            mode: 'line',
+            time: drawHoverTime,
+            value: drawHoverValue,
+            x: drawHoverX,
+            y: layout.toY(drawHoverValue),
+            formattedValue: cfg.formatValue(drawHoverValue),
+            formattedTime: cfg.formatTime(drawHoverTime),
+          })
+        }
+      } else if (scrubAmountRef.current < 0.01) {
+        wrapper.style.opacity = '0'
+        tooltipDisplayXRef.current = null // reset so next hover starts at target
+        if (lastTooltipKeyRef.current !== null) {
+          lastTooltipKeyRef.current = null
+          cfg.onTooltipData?.(null)
+        }
       }
     }
 
