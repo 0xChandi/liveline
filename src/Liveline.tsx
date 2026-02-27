@@ -446,7 +446,7 @@ export function Liveline({
                       zIndex: 1,
                       fontSize: 11,
                       padding: seriesToggleCompact
-                        ? (ws === 'text' ? '2px 4px' : '5px 7px')
+                        ? (ws === 'text' ? '2px 4px' : '7px 7px')
                         : (ws === 'text' ? '2px 6px' : '3px 8px'),
                       borderRadius: ws === 'rounded' ? 999 : 4,
                       border: 'none',
