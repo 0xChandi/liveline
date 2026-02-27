@@ -95,6 +95,7 @@ export interface LivelineProps {
   // Crosshair
   tooltipY?: number        // Vertical offset for crosshair tooltip text (default: 14)
   tooltipOutline?: boolean // Stroke outline around crosshair tooltip text for readability (default: true)
+  scrubFade?: boolean      // Fade crosshair/tooltip near the live dot (default: true). Set false for historical/paused data.
 
   // Orderbook
   orderbook?: OrderbookData

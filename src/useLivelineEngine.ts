@@ -38,6 +38,7 @@ interface EngineConfig {
   badgeVariant: BadgeVariant
   tooltipY: number
   tooltipOutline: boolean
+  scrubFade: boolean
   valueMomentumColor: boolean
   valueDisplayRef?: React.RefObject<HTMLSpanElement | null>
   orderbookData?: OrderbookData
@@ -1119,7 +1120,12 @@ export function useLivelineEngine(
       const windowTransProgress = windowResult.windowTransProgress
       const isWindowTransitioning = transition.startMs > 0
 
-      const rightEdge = now + windowSecs * candleBuffer
+      let rawRightEdge = now + windowSecs * candleBuffer
+      // Clamp right edge for historical data (latest data far behind `now`)
+      if (effectiveCandles.length > 0 && now - effectiveCandles[effectiveCandles.length - 1].time > windowSecs * 0.5) {
+        rawRightEdge = effectiveCandles[effectiveCandles.length - 1].time + windowSecs * candleBuffer
+      }
+      const rightEdge = rawRightEdge
       // Clamp left edge so the x-axis never extends before the earliest candle
       const rawLeftEdge = rightEdge - windowSecs
       const firstCandleTime = effectiveCandles.length > 0 ? effectiveCandles[0].time : rawLeftEdge
@@ -1481,6 +1487,7 @@ export function useLivelineEngine(
         pauseProgress,
         showGrid: cfg.showGrid,
         scrubAmount,
+        scrubFade: cfg.scrubFade,
         hoverX: drawHoverX,
         hoverValue: drawHoverCandle?.close ?? null,
         hoverTime: drawHoverTime,
@@ -1616,11 +1623,12 @@ export function useLivelineEngine(
 
     const effectiveMultiSeries = useMultiStash ? lastMultiSeriesRef.current : cfg.multiSeries!
 
-    // Reserve right-side space for endpoint labels only when the grid is on,
-    // so labels don't overlap grid value text. When grid is off, labels draw
-    // freely into pad.right with no extra reserve needed.
+    // Reserve right-side space so endpoint labels sit flush at the canvas edge.
+    // The live dot is at pad.left + chartW*(1-B), label right edge must reach w.
+    // Solving: pad.left + (avail - pad.right - L)*(1-B) + labelNeed = w
+    //   => L = avail - pad.right - (avail - labelNeed) / (1-B)
     let labelReserve = 0
-    if (cfg.showGrid && effectiveMultiSeries.some(s => s.label)) {
+    if (effectiveMultiSeries.some(s => s.label)) {
       ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
       let maxLabelW = 0
       for (const s of effectiveMultiSeries) {
@@ -1629,8 +1637,10 @@ export function useLivelineEngine(
           if (lw > maxLabelW) maxLabelW = lw
         }
       }
-      const labelNeed = maxLabelW + 6
-      labelReserve = Math.max(0, labelNeed - pad.right) * chartReveal
+      const labelNeed = maxLabelW + 10 // 6px gap from dot + 4px right margin
+      const avail = w - pad.left
+      const B = WINDOW_BUFFER
+      labelReserve = Math.max(0, avail - pad.right - (avail - labelNeed) / (1 - B)) * chartReveal
     }
 
     const chartW = w - pad.left - pad.right - labelReserve
@@ -1718,16 +1728,24 @@ export function useLivelineEngine(
     const windowTransProgress = windowResult.windowTransProgress
     const isWindowTransitioning = transition.startMs > 0
 
-    const rightEdge = now + windowSecs * buffer
-    // Clamp left edge so the x-axis never extends before the earliest series data
-    const rawLeftEdge = rightEdge - windowSecs
+    let rawRightEdge = now + windowSecs * buffer
+    // Clamp right edge so it doesn't extend far past the latest data point
+    // (prevents huge empty future gap for historical / non-live data)
+    let latestSeriesTime = -Infinity
     let earliestSeriesTime = Infinity
     for (const s of effectiveMultiSeries) {
       const sData = pausedMultiDataRef.current?.get(s.id)?.data ?? s.data
-      if (sData.length > 0 && sData[0].time < earliestSeriesTime) {
-        earliestSeriesTime = sData[0].time
+      if (sData.length > 0) {
+        if (sData[0].time < earliestSeriesTime) earliestSeriesTime = sData[0].time
+        if (sData[sData.length - 1].time > latestSeriesTime) latestSeriesTime = sData[sData.length - 1].time
       }
     }
+    if (isFinite(latestSeriesTime) && now - latestSeriesTime > windowSecs * 0.5) {
+      rawRightEdge = latestSeriesTime + windowSecs * buffer
+    }
+    const rightEdge = rawRightEdge
+    // Clamp left edge so the x-axis never extends before the earliest series data
+    const rawLeftEdge = rightEdge - windowSecs
     const leftEdge = isFinite(earliestSeriesTime)
       ? Math.max(rawLeftEdge, earliestSeriesTime)
       : rawLeftEdge
@@ -1819,9 +1837,6 @@ export function useLivelineEngine(
       const maxHoverX = layout.toX(now)
       const clampedX = Math.min(hoverPx, maxHoverX)
       const t = leftEdge + ((clampedX - pad.left) / chartW) * (rightEdge - leftEdge)
-      drawHoverX = clampedX
-      drawHoverTime = t
-      isActiveHover = true
 
       for (const entry of seriesEntries) {
         // Skip hidden series from crosshair tooltip
@@ -1831,9 +1846,16 @@ export function useLivelineEngine(
           hoverEntries.push({ color: entry.palette.line, label: entry.label ?? '', value: v })
         }
       }
-      lastHoverRef.current = { x: clampedX, value: hoverEntries[0]?.value ?? 0, time: t }
-      lastHoverEntriesRef.current = hoverEntries
-      cfg.onHover?.({ time: t, value: hoverEntries[0]?.value ?? 0, x: clampedX, y: layout.toY(hoverEntries[0]?.value ?? 0) })
+
+      // Only activate hover if at least one series had data at this time
+      if (hoverEntries.length > 0) {
+        drawHoverX = clampedX
+        drawHoverTime = t
+        isActiveHover = true
+        lastHoverRef.current = { x: clampedX, value: hoverEntries[0].value, time: t }
+        lastHoverEntriesRef.current = hoverEntries
+        cfg.onHover?.({ time: t, value: hoverEntries[0].value, x: clampedX, y: layout.toY(hoverEntries[0].value) })
+      }
     }
 
     // Scrub amount
@@ -1918,6 +1940,7 @@ export function useLivelineEngine(
       hoverTime: drawHoverTime,
       hoverEntries,
       scrubAmount: scrubAmountRef.current,
+      scrubFade: cfg.scrubFade,
       windowSecs,
       formatValue: cfg.formatValue,
       formatTime: cfg.formatTime,
@@ -1947,23 +1970,28 @@ export function useLivelineEngine(
       const wrapper = cfg.tooltipWrapperRef.current
       if (drawHoverX !== null && drawHoverTime !== null && hoverEntries.length > 0
           && scrubAmountRef.current > 0.01) {
-        // Compute scrubOpacity with same fade-near-live-dot logic as drawMultiFrame
-        let maxLiveDotX = 0
-        for (const entry of seriesEntries) {
-          if ((entry.alpha ?? 1) < 0.01) continue
-          const lastPt = entry.visible[entry.visible.length - 1]
-          if (lastPt) {
-            const x = layout.toX(lastPt.time)
-            if (x > maxLiveDotX) maxLiveDotX = x
+        // Compute scrubOpacity — fade near live dot when scrubFade enabled
+        let scrubOpacity: number
+        if (cfg.scrubFade) {
+          let maxLiveDotX = 0
+          for (const entry of seriesEntries) {
+            if ((entry.alpha ?? 1) < 0.01) continue
+            const lastPt = entry.visible[entry.visible.length - 1]
+            if (lastPt) {
+              const x = layout.toX(lastPt.time)
+              if (x > maxLiveDotX) maxLiveDotX = x
+            }
           }
+          const distToLive = maxLiveDotX - drawHoverX
+          const fadeStart = Math.min(80, layout.chartW * 0.3)
+          const fadeMinPx = 5
+          const rawScrub = distToLive < fadeMinPx ? 0
+            : distToLive >= fadeStart ? scrubAmountRef.current
+            : ((distToLive - fadeMinPx) / (fadeStart - fadeMinPx)) * scrubAmountRef.current
+          scrubOpacity = Math.min(rawScrub * 3, 1)
+        } else {
+          scrubOpacity = Math.min(scrubAmountRef.current * 3, 1)
         }
-        const distToLive = maxLiveDotX - drawHoverX
-        const fadeStart = Math.min(80, layout.chartW * 0.3)
-        const fadeMinPx = 5
-        const rawScrub = distToLive < fadeMinPx ? 0
-          : distToLive >= fadeStart ? scrubAmountRef.current
-          : ((distToLive - fadeMinPx) / (fadeStart - fadeMinPx)) * scrubAmountRef.current
-        const scrubOpacity = Math.min(rawScrub * 3, 1)
 
         // Measure tooltip for positioning
         const tooltipEl = wrapper.firstElementChild as HTMLElement | null
@@ -2083,7 +2111,13 @@ export function useLivelineEngine(
     const windowSecs = windowResult.windowSecs
     const windowTransProgress = windowResult.windowTransProgress
 
-    const rightEdge = now + windowSecs * buffer
+    let rawRightEdge = now + windowSecs * buffer
+    // Clamp right edge so it doesn't extend far past the latest data point
+    // Clamp right edge for historical data (latest data far behind `now`)
+    if (effectivePoints.length > 0 && now - effectivePoints[effectivePoints.length - 1].time > windowSecs * 0.5) {
+      rawRightEdge = effectivePoints[effectivePoints.length - 1].time + windowSecs * buffer
+    }
+    const rightEdge = rawRightEdge
     // Clamp left edge so the x-axis never extends before the earliest data
     const rawLeftEdge = rightEdge - windowSecs
     const firstTime = effectivePoints.length > 0 ? effectivePoints[0].time : rawLeftEdge
@@ -2222,6 +2256,7 @@ export function useLivelineEngine(
       hoverValue: drawHoverValue,
       hoverTime: drawHoverTime,
       scrubAmount: scrubAmountRef.current,
+      scrubFade: cfg.scrubFade,
       windowSecs,
       formatValue: cfg.formatValue,
       formatTime: cfg.formatTime,
@@ -2294,17 +2329,21 @@ export function useLivelineEngine(
       const wrapper = cfg.tooltipWrapperRef.current
       if (drawHoverX !== null && drawHoverValue !== null && drawHoverTime !== null
           && scrubAmountRef.current > 0.01) {
-        // Compute scrubOpacity with same fade-near-live-dot logic as drawFrame
-        const lastVisIdx = visible.length - 1
-        const liveDotX = lastVisIdx >= 0 ? layout.toX(visible[lastVisIdx].time) : w - pad.right
-        const distToLive = liveDotX - drawHoverX
-        const fadeStart = Math.min(80, layout.chartW * 0.3)
-        const fadeMinPx = 5
-        const rawScrub = distToLive < fadeMinPx ? 0
-          : distToLive >= fadeStart ? scrubAmountRef.current
-          : ((distToLive - fadeMinPx) / (fadeStart - fadeMinPx)) * scrubAmountRef.current
-        // Faster fade: ramp opacity quicker so tooltip appears/disappears snappily
-        const scrubOpacity = Math.min(rawScrub * 3, 1)
+        // Compute scrubOpacity — fade near live dot when scrubFade enabled
+        let scrubOpacity: number
+        if (cfg.scrubFade) {
+          const lastVisIdx = visible.length - 1
+          const liveDotX = lastVisIdx >= 0 ? layout.toX(visible[lastVisIdx].time) : w - pad.right
+          const distToLive = liveDotX - drawHoverX
+          const fadeStart = Math.min(80, layout.chartW * 0.3)
+          const fadeMinPx = 5
+          const rawScrub = distToLive < fadeMinPx ? 0
+            : distToLive >= fadeStart ? scrubAmountRef.current
+            : ((distToLive - fadeMinPx) / (fadeStart - fadeMinPx)) * scrubAmountRef.current
+          scrubOpacity = Math.min(rawScrub * 3, 1)
+        } else {
+          scrubOpacity = Math.min(scrubAmountRef.current * 3, 1)
+        }
 
         // Measure tooltip for positioning
         const tooltipEl = wrapper.firstElementChild as HTMLElement | null

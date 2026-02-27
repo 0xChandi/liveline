@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Liveline } from 'liveline'
-import type { LivelinePoint, LivelineSeries, BarPoint} from 'liveline'
+import type { LivelinePoint, LivelineSeries, BarPoint, TooltipData } from 'liveline'
 
 // --- Data generators ---
 
@@ -108,6 +108,7 @@ function Demo() {
   const barBucketSecs = 2
   const [windowStyle, setWindowStyle] = useState<'default' | 'rounded' | 'text'>('default')
   const [lineMode, setLineMode] = useState(true)
+  const [scrubFade, setScrubFade] = useState(true)
 
   // Data controls
   const [volatility, setVolatility] = useState<Volatility>('normal')
@@ -278,6 +279,7 @@ function Demo() {
         <Toggle on={momentum} onToggle={setMomentum}>Momentum</Toggle>
         <Toggle on={pulse} onToggle={setPulse}>Pulse</Toggle>
         <Toggle on={scrub} onToggle={setScrub}>Scrub</Toggle>
+        <Toggle on={scrubFade} onToggle={setScrubFade}>Scrub Fade</Toggle>
         <Toggle on={exaggerate} onToggle={setExaggerate}>Exaggerate</Toggle>
         <Sep />
         <Label text="Badge style">
@@ -326,6 +328,7 @@ function Demo() {
           fill={fill}
           grid={grid}
           scrub={scrub}
+          scrubFade={scrubFade}
           pulse={pulse}
           exaggerate={exaggerate}
           degen={degenOpts}
@@ -444,10 +447,31 @@ function Demo() {
   )
 }
 
+// ─── Custom Tooltip ───────────────────────────────────────────
+
+function MultiTooltip(props: TooltipData) {
+  if (props.mode !== 'line') return null
+  return (
+    <div style={{
+      background: 'rgba(0,0,0,0.85)',
+      border: '1px solid rgba(255,255,255,0.15)',
+      borderRadius: 8,
+      padding: '8px 12px',
+      fontSize: 12,
+      fontFamily: '"SF Mono", Menlo, monospace',
+      color: '#e5e5e5',
+      whiteSpace: 'nowrap',
+    }}>
+      <div style={{ color: '#888', marginBottom: 4 }}>{props.formattedTime}</div>
+      <div style={{ fontSize: 14, fontWeight: 600 }}>{props.formattedValue}</div>
+    </div>
+  )
+}
+
 // ─── Multi-Series Demo ────────────────────────────────────────
 
 const MULTI_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b']
-const MULTI_LABELS = ['Yes', 'No', 'Maybe', 'Other']
+const MULTI_LABELS = ['Yes', 'No', 'Benchmark', 'Other']
 const MULTI_BIASES = [0.51, 0.49, 0.50, 0.48]
 
 const MULTI_WINDOWS = [
@@ -475,6 +499,8 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
   const [multiBarMode, setMultiBarMode] = useState<'default' | 'overlay'>('default')
   const [multiBarLabels, setMultiBarLabels] = useState(false)
   const [showBars, setShowBars] = useState(false)
+  const [customTooltip, setCustomTooltip] = useState(false)
+  const [scrubFade, setScrubFade] = useState(true)
   const multiBarBucketSecs = 2
   const intervalRef = useRef<number>(0)
   const seriesCountRef = useRef(seriesCount)
@@ -600,10 +626,12 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
       <Section label="Features">
         <Toggle on={grid} onToggle={setGrid}>Grid</Toggle>
         <Toggle on={scrub} onToggle={setScrub}>Scrub</Toggle>
+        <Toggle on={scrubFade} onToggle={setScrubFade}>Scrub Fade</Toggle>
         <Toggle on={pulse} onToggle={setPulse}>Pulse</Toggle>
         <Toggle on={exaggerate} onToggle={setExaggerate}>Exaggerate</Toggle>
         <Toggle on={showRef} onToggle={setShowRef}>Ref Line</Toggle>
         <Toggle on={compactToggle} onToggle={setCompactToggle}>Compact Toggle</Toggle>
+        <Toggle on={customTooltip} onToggle={setCustomTooltip}>Custom Tooltip</Toggle>
       </Section>
 
       <Section label="Bars">
@@ -639,6 +667,7 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
           windowStyle={windowStyle}
           grid={grid}
           scrub={scrub}
+          scrubFade={scrubFade}
           pulse={pulse}
           exaggerate={exaggerate}
           loading={loading}
@@ -651,6 +680,7 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
           barMode={multiBarMode}
           barWidth={multiBarBucketSecs}
           barLabels={multiBarLabels}
+          tooltip={customTooltip ? MultiTooltip : undefined}
         />
       </div>
 

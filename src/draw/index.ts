@@ -43,6 +43,7 @@ export interface DrawOptions {
   hoverValue: number | null
   hoverTime: number | null
   scrubAmount: number // 0 = not scrubbing, 1 = fully scrubbing (lerped)
+  scrubFade: boolean  // fade crosshair/tooltip near live dot
   windowSecs: number
   formatValue: (v: number) => string
   formatTime: (t: number) => string
@@ -174,7 +175,7 @@ export function drawFrame(
 
     // 5. Dot — dims during scrub, fades in with reveal (0.3 → 1.0)
     let dotScrub = opts.scrubAmount
-    if (opts.hoverX !== null && dotScrub > 0) {
+    if (opts.scrubFade && opts.hoverX !== null && dotScrub > 0) {
       const distToLive = lastPt[0] - opts.hoverX
       const fadeStart = Math.min(80, layout.chartW * 0.3)
       dotScrub = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
@@ -254,14 +255,19 @@ export function drawFrame(
   ctx.fillRect(0, 0, layout.pad.left + fadeW, layout.h)
   ctx.restore()
 
-  // 8. Crosshair — fade out well before reaching live dot
+  // 8. Crosshair — fade out well before reaching live dot (when scrubFade enabled)
   if (opts.hoverX !== null && opts.hoverValue !== null && opts.hoverTime !== null && pts && pts.length > 0) {
     const lastPt = pts[pts.length - 1]
-    const distToLive = lastPt[0] - opts.hoverX
-    const fadeStart = Math.min(80, layout.chartW * 0.3)
-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
-      : distToLive >= fadeStart ? opts.scrubAmount
-      : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+    let scrubOpacity: number
+    if (opts.scrubFade) {
+      const distToLive = lastPt[0] - opts.hoverX
+      const fadeStart = Math.min(80, layout.chartW * 0.3)
+      scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
+        : distToLive >= fadeStart ? opts.scrubAmount
+        : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+    } else {
+      scrubOpacity = opts.scrubAmount
+    }
 
     if (scrubOpacity > 0.01) {
       drawCrosshair(
@@ -303,6 +309,7 @@ export interface MultiSeriesDrawOptions {
   hoverTime: number | null
   hoverEntries: MultiSeriesHoverEntry[]
   scrubAmount: number
+  scrubFade: boolean
   windowSecs: number
   formatValue: (v: number) => string
   formatTime: (t: number) => string
@@ -485,9 +492,9 @@ export function drawMultiFrame(
   ctx.fillRect(0, 0, layout.pad.left + FADE_EDGE_WIDTH, layout.h)
   ctx.restore()
 
-  // 7. Multi-series crosshair — fade out near live dots (same logic as single-series)
+  // 7. Multi-series crosshair — fade out near live dots (when scrubFade enabled)
   if (opts.hoverX !== null && opts.hoverTime !== null && opts.hoverEntries.length > 0 && allPts.length > 0 && opts.scrubAmount > 0.01) {
-    // Find rightmost live dot X (skip hidden series)
+    // Find rightmost live dot X (skip hidden series) — used for fade + tooltip positioning
     let maxLiveDotX = 0
     for (const entry of allPts) {
       if (entry.alpha < 0.01) continue
@@ -495,11 +502,16 @@ export function drawMultiFrame(
       if (lastX > maxLiveDotX) maxLiveDotX = lastX
     }
 
-    const distToLive = maxLiveDotX - opts.hoverX
-    const fadeStart = Math.min(80, layout.chartW * 0.3)
-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
-      : distToLive >= fadeStart ? opts.scrubAmount
-      : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+    let scrubOpacity: number
+    if (opts.scrubFade) {
+      const distToLive = maxLiveDotX - opts.hoverX
+      const fadeStart = Math.min(80, layout.chartW * 0.3)
+      scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
+        : distToLive >= fadeStart ? opts.scrubAmount
+        : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+    } else {
+      scrubOpacity = opts.scrubAmount
+    }
 
     if (scrubOpacity > 0.01) {
       drawMultiCrosshair(
@@ -538,6 +550,7 @@ export interface CandleDrawOptions {
   pauseProgress: number
   showGrid: boolean
   scrubAmount: number
+  scrubFade: boolean
   hoverX: number | null
   hoverValue: number | null
   hoverTime: number | null
