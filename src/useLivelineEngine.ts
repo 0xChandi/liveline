@@ -1125,8 +1125,8 @@ export function useLivelineEngine(
       const candleDataSpan = now - firstCandleTime
       const clampedWindow = candleDataSpan > 0 ? Math.min(windowSecs, candleDataSpan) : windowSecs
 
+      const leftEdge = now - clampedWindow
       const rightEdge = now + clampedWindow * candleBuffer
-      const leftEdge = rightEdge - clampedWindow
 
       // --- Live candle OHLC lerp ---
       let smoothLive: CandlePoint | undefined
@@ -1494,7 +1494,7 @@ export function useLivelineEngine(
         gridState: gridStateRef.current,
         timeAxisState: timeAxisStateRef.current,
         dt: pausedDt,
-        targetWindowSecs: cfg.windowSecs,
+        targetWindowSecs: clampedWindow,
         tooltipY: cfg.tooltipY,
         tooltipOutline: cfg.tooltipOutline,
         lineVisible,
@@ -1637,7 +1637,7 @@ export function useLivelineEngine(
       const labelNeed = maxLabelW + 10 // 6px gap from dot + 4px right margin
       const avail = w - pad.left
       const B = WINDOW_BUFFER
-      labelReserve = Math.max(0, avail - pad.right - (avail - labelNeed) / (1 - B)) * chartReveal
+      labelReserve = Math.max(0, avail - pad.right - (avail - labelNeed) * (1 + B)) * chartReveal
     }
 
     const chartW = w - pad.left - pad.right - labelReserve
@@ -1737,8 +1737,8 @@ export function useLivelineEngine(
     const multiDataSpan = now - earliestSeriesTime
     const clampedWindow = multiDataSpan > 0 ? Math.min(windowSecs, multiDataSpan) : windowSecs
 
+    const leftEdge = now - clampedWindow
     const rightEdge = now + clampedWindow * buffer
-    const leftEdge = rightEdge - clampedWindow
     const filterRight = rightEdge - (rightEdge - now) * pauseProgress
 
     // Build per-series visible arrays and compute global range
@@ -1751,9 +1751,13 @@ export function useLivelineEngine(
       const snap = pausedMultiDataRef.current?.get(s.id)
       const seriesData = snap?.data ?? s.data
       const visible: LivelinePoint[] = []
+      let lastBefore: LivelinePoint | null = null
       for (const p of seriesData) {
-        if (p.time >= leftEdge - 2 && p.time <= filterRight) visible.push(p)
+        if (p.time < leftEdge) { lastBefore = p; continue }
+        if (p.time > filterRight) break
+        visible.push(p)
       }
+      if (lastBefore) visible.unshift(lastBefore)
       const sv = smoothValues.get(s.id) ?? s.value
       const alpha = seriesAlphas.get(s.id) ?? 1
       if (visible.length >= 2) {
@@ -1937,7 +1941,7 @@ export function useLivelineEngine(
       gridState: gridStateRef.current,
       timeAxisState: timeAxisStateRef.current,
       dt,
-      targetWindowSecs: cfg.windowSecs,
+      targetWindowSecs: clampedWindow,
       tooltipY: cfg.tooltipY,
       tooltipOutline: cfg.tooltipOutline,
       chartReveal,
@@ -2107,18 +2111,20 @@ export function useLivelineEngine(
     const dataSpan = now - firstTime
     const clampedWindow = dataSpan > 0 ? Math.min(windowSecs, dataSpan) : windowSecs
 
+    const leftEdge = now - clampedWindow
     const rightEdge = now + clampedWindow * buffer
-    const leftEdge = rightEdge - clampedWindow
 
     // Filter visible points — when pausing, contract right edge to `now`
     // so new data (with real-time timestamps) can't appear past the live dot
     const filterRight = rightEdge - (rightEdge - now) * pauseProgress
     const visible: LivelinePoint[] = []
+    let lastBefore: LivelinePoint | null = null
     for (const p of effectivePoints) {
-      if (p.time >= leftEdge - 2 && p.time <= filterRight) {
-        visible.push(p)
-      }
+      if (p.time < leftEdge) { lastBefore = p; continue }
+      if (p.time > filterRight) break
+      visible.push(p)
     }
+    if (lastBefore) visible.unshift(lastBefore)
 
     if (visible.length < 2) {
       if (badgeRef.current) badgeRef.current.container.style.display = 'none'
@@ -2250,7 +2256,7 @@ export function useLivelineEngine(
       gridState: gridStateRef.current,
       timeAxisState: timeAxisStateRef.current,
       dt,
-      targetWindowSecs: cfg.windowSecs,
+      targetWindowSecs: clampedWindow,
       tooltipY: cfg.tooltipY,
       tooltipOutline: cfg.tooltipOutline,
       orderbookData: cfg.orderbookData,

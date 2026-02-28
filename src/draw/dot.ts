@@ -31,7 +31,12 @@ export function drawDot(
     const t = (now_ms % PULSE_INTERVAL) / PULSE_DURATION
     if (t < 1) {
       const radius = 9 + t * 12
-      const pulseAlpha = 0.35 * (1 - t) * (1 - dim * 3)
+      // Fade out pulse when dot is near canvas edge so ring doesn't clip
+      const cw = ctx.canvas.width / (window.devicePixelRatio || 1)
+      const ch = ctx.canvas.height / (window.devicePixelRatio || 1)
+      const edgeDist = Math.min(x, y, cw - x, ch - y)
+      const edgeFade = edgeDist >= radius ? 1 : Math.max(0, edgeDist / radius)
+      const pulseAlpha = 0.35 * (1 - t) * (1 - dim * 3) * edgeFade
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, Math.PI * 2)
       ctx.strokeStyle = palette.line
@@ -86,7 +91,11 @@ export function drawMultiDot(
     const t = (now_ms % PULSE_INTERVAL) / PULSE_DURATION
     if (t < 1) {
       const ringRadius = 9 + t * 10
-      const pulseAlpha = 0.3 * (1 - t)
+      const cw = ctx.canvas.width / (window.devicePixelRatio || 1)
+      const ch = ctx.canvas.height / (window.devicePixelRatio || 1)
+      const edgeDist = Math.min(x, y, cw - x, ch - y)
+      const edgeFade = edgeDist >= ringRadius ? 1 : Math.max(0, edgeDist / ringRadius)
+      const pulseAlpha = 0.3 * (1 - t) * edgeFade
       ctx.beginPath()
       ctx.arc(x, y, ringRadius, 0, Math.PI * 2)
       ctx.strokeStyle = color
