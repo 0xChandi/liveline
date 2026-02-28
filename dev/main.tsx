@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Liveline } from 'liveline'
-import type { LivelinePoint, LivelineSeries, BarPoint, TooltipData } from 'liveline'
+import type { LivelinePoint, LivelineSeries, BarPoint, TooltipData, WindowOption } from 'liveline'
 
 // --- Data generators ---
 
@@ -441,9 +441,105 @@ function Demo() {
         <span>volatility: {volatility}</span>
       </div>
 
+      {/* Buffer bug demo */}
+      <BufferBugDemo theme={theme} />
+
       {/* Multi-series demo */}
       <MultiSeriesDemo theme={theme} />
     </div>
+  )
+}
+
+// ─── Buffer Bug Demo ──────────────────────────────────────────
+
+const DAY_SECS = 86400
+const YEAR_DAYS = 365
+
+const BUFFER_TEST_WINDOWS: WindowOption[] = [
+  { label: '7D', secs: 7 * DAY_SECS },
+  { label: '1M', secs: 30 * DAY_SECS },
+  { label: '3M', secs: 90 * DAY_SECS },
+  { label: '6M', secs: 180 * DAY_SECS },
+  { label: '1Y', secs: 365 * DAY_SECS },
+  { label: 'All', secs: 10 * 365 * DAY_SECS },
+]
+
+const bufferTestNow = Date.now()
+const emptyData: LivelinePoint[] = Array.from({ length: YEAR_DAYS + 1 }, (_, i) => ({
+  time: (bufferTestNow - (YEAR_DAYS - i) * 86400000) / 1000,
+  value: 0,
+}))
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const formatDateMMDD = (t: number) => {
+  const d = new Date(t * 1000)
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`
+}
+
+function BufferTooltip(data: TooltipData) {
+  if (data.mode !== 'line') return null
+  return (
+    <div style={{
+      background: 'rgba(20, 20, 20, 0.95)',
+      borderRadius: 8,
+      padding: '8px 12px',
+      fontSize: 12,
+      fontFamily: '"SF Mono", Menlo, monospace',
+      color: '#e5e5e5',
+      border: '1px solid rgba(255,255,255,0.1)',
+    }}>
+      <div style={{ color: '#888', marginBottom: 4 }}>{formatDateMMDD(data.time)}</div>
+      <div style={{ fontSize: 14, fontWeight: 600 }}>{data.formattedValue}</div>
+    </div>
+  )
+}
+
+function BufferBugDemo({ theme }: { theme: 'dark' | 'light' }) {
+  const [activeWindow, setActiveWindow] = useState(7 * DAY_SECS)
+
+  return (
+    <>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 40, marginBottom: 4, borderBottom: 'none' }}>Buffer Bug Test</h2>
+      <p style={{ fontSize: 12, color: 'var(--fg-30)', marginBottom: 12 }}>
+        365 days of zero-value data. Verify left edge is not clipped on large timeframes.
+      </p>
+      <div style={{
+        height: 420,
+        background: 'var(--fg-02)',
+        borderRadius: 12,
+        border: '1px solid var(--fg-06)',
+        padding: 8,
+        overflow: 'hidden',
+      }}>
+        <Liveline
+          data={emptyData}
+          value={0}
+          theme={theme}
+          color="#a855f7"
+          badge={false}
+          momentum={false}
+          grid
+          scrub
+          scrubFade={false}
+          padding={{ left: 0, right: 0, bottom: 80 }}
+          windows={BUFFER_TEST_WINDOWS}
+          onWindowChange={(secs) => setActiveWindow(secs)}
+          windowStyle="default"
+          referenceLine={{ value: 0 }}
+          emptyText="Data not yet available"
+          formatTime={formatDateMMDD}
+          tooltip={BufferTooltip}
+        />
+      </div>
+      <div style={{
+        marginTop: 8,
+        fontSize: 11,
+        fontFamily: '"SF Mono", Menlo, monospace',
+        color: 'var(--fg-25)',
+      }}>
+        <span>window: {activeWindow}s ({(activeWindow / DAY_SECS).toFixed(0)}d)</span>
+      </div>
+    </>
   )
 }
 

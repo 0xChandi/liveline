@@ -1494,7 +1494,7 @@ export function useLivelineEngine(
         gridState: gridStateRef.current,
         timeAxisState: timeAxisStateRef.current,
         dt: pausedDt,
-        targetWindowSecs: cfg.windowSecs,
+        targetWindowSecs: clampedWindow,
         tooltipY: cfg.tooltipY,
         tooltipOutline: cfg.tooltipOutline,
         lineVisible,
@@ -1751,9 +1751,13 @@ export function useLivelineEngine(
       const snap = pausedMultiDataRef.current?.get(s.id)
       const seriesData = snap?.data ?? s.data
       const visible: LivelinePoint[] = []
+      let lastBefore: LivelinePoint | null = null
       for (const p of seriesData) {
-        if (p.time >= leftEdge - 2 && p.time <= filterRight) visible.push(p)
+        if (p.time < leftEdge) { lastBefore = p; continue }
+        if (p.time > filterRight) break
+        visible.push(p)
       }
+      if (lastBefore) visible.unshift(lastBefore)
       const sv = smoothValues.get(s.id) ?? s.value
       const alpha = seriesAlphas.get(s.id) ?? 1
       if (visible.length >= 2) {
@@ -1937,7 +1941,7 @@ export function useLivelineEngine(
       gridState: gridStateRef.current,
       timeAxisState: timeAxisStateRef.current,
       dt,
-      targetWindowSecs: cfg.windowSecs,
+      targetWindowSecs: clampedWindow,
       tooltipY: cfg.tooltipY,
       tooltipOutline: cfg.tooltipOutline,
       chartReveal,
@@ -2114,11 +2118,13 @@ export function useLivelineEngine(
     // so new data (with real-time timestamps) can't appear past the live dot
     const filterRight = rightEdge - (rightEdge - now) * pauseProgress
     const visible: LivelinePoint[] = []
+    let lastBefore: LivelinePoint | null = null
     for (const p of effectivePoints) {
-      if (p.time >= leftEdge - 2 && p.time <= filterRight) {
-        visible.push(p)
-      }
+      if (p.time < leftEdge) { lastBefore = p; continue }
+      if (p.time > filterRight) break
+      visible.push(p)
     }
+    if (lastBefore) visible.unshift(lastBefore)
 
     if (visible.length < 2) {
       if (badgeRef.current) badgeRef.current.container.style.display = 'none'
@@ -2250,7 +2256,7 @@ export function useLivelineEngine(
       gridState: gridStateRef.current,
       timeAxisState: timeAxisStateRef.current,
       dt,
-      targetWindowSecs: cfg.windowSecs,
+      targetWindowSecs: clampedWindow,
       tooltipY: cfg.tooltipY,
       tooltipOutline: cfg.tooltipOutline,
       orderbookData: cfg.orderbookData,
